@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "brightwalker25.net-speed",
   "name": "Net Speed Colour",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": "brightwalker25",
   "license": "MIT",
   "description": "Live upload and download on the physical network link, with the VPN tunnel and daily usage in a panel",

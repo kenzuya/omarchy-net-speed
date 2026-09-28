@@ -92,9 +92,15 @@ So the bar measures the interface that actually puts bits on the air or the
 wire. An interface counts as physical when the kernel gives it a device node
 (`/sys/class/net/<name>/device`), which Wi-Fi cards, Ethernet ports and USB
 adapters have and tunnels, dummies and bridges do not. Among the physical
-interfaces that are up, the one with the best default route wins. If none of
-them has a default route, the one that has moved the most data is used. If you
-would rather choose yourself, set `interface` to a name and it is used as given.
+interfaces that are up, the one with the best default route, IPv4 or IPv6,
+wins. If none of them has a default route, the one that has moved the most
+data is used. If you would rather choose yourself, set `interface` to a name
+and it is used as given.
+
+Some USB drivers never report link state, so the kernel leaves the interface's
+state at "unknown". Android USB tethering (`rndis_host`) and iPhone tethering
+(`ipheth`) both work this way. Such an interface counts as up when it is
+enabled and has a carrier. The panel shows it as "USB tether".
 
 The tunnel is found separately: the first tunnel interface that is up
 (WireGuard, OpenVPN's `tun`, and the interfaces Proton, Tailscale, NordVPN and

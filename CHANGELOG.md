@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.2 - 2026-09-28
+
+### Fixed
+
+- USB tethering from an Android phone is detected. The `rndis_host` driver
+  never reports link state, so the kernel shows the interface as "unknown"
+  instead of "up". The widget only accepted "up", so it found no link at all
+  and the bar showed nothing. An "unknown" interface now counts as up when it
+  is enabled and has a carrier. The same applies to iPhone tethering
+  (`ipheth`) and to other USB network drivers that behave like this.
+
+### Changed
+
+- IPv6 default routes are used when picking the link, as well as IPv4 ones.
+  On a network that only has an IPv6 default route, the routed interface now
+  wins. Before this, the widget picked whichever interface had moved the most
+  data. Reject routes, such as the kernel's unreachable default, are ignored.
+- Tethering has its own kind, `tether`, which the panel shows as
+  "USB tether". It is used for the `rndis_host` and `ipheth` drivers and for
+  the RNDIS USB class. Other USB network adapters are still "USB".
+
 ## 0.3.1 - 2026-09-26
 
 ### Changed

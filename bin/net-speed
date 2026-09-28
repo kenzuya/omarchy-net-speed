@@ -34,6 +34,12 @@ TUNNEL_PREFIXES = ("wg", "tun", "proton", "tailscale", "nordlynx", "mullvad")
 ARPHRD_ETHER = 1
 ARPHRD_NONE = 65534
 IFF_UP = 0x1
+RTF_REJECT = 0x0200
+
+# USB network drivers that only ever sit behind a phone sharing its connection.
+TETHER_DRIVERS = ("rndis_host", "ipheth")
+# bInterfaceClass of RNDIS, which Android uses for USB tethering.
+USB_CLASS_WIRELESS = "e0"
 
 
 def read(path, default=None):
@@ -67,6 +73,12 @@ def classify(base, name):
     if physical:
         subsystem = os.path.realpath(os.path.join(path, "device", "subsystem"))
         if os.path.basename(subsystem) == "usb":
+            driver = os.path.basename(
+                os.path.realpath(os.path.join(path, "device", "driver"))
+            )
+            usb_class = read(os.path.join(path, "device", "bInterfaceClass"), "")
+            if driver in TETHER_DRIVERS or usb_class.lower() == USB_CLASS_WIRELESS:
+                return "tether", True
             return "usb", True
         if iftype == ARPHRD_ETHER:
             return "ethernet", True
@@ -87,6 +99,20 @@ def classify(base, name):
             return "other", False
         return "dummy", False
     return "other", False
+
+
+def is_live(path, operstate, flags):
+    """Whether an interface can carry traffic right now.
+
+    Drivers that never report link state (rndis_host for Android tethering,
+    ipheth, some cdc_ether devices) leave operstate at "unknown" for good, so
+    for those the carrier bit decides.
+    """
+    if operstate == "up":
+        return True
+    if operstate != "unknown" or not flags & IFF_UP:
+        return False
+    return read_int(os.path.join(path, "carrier"), 0) == 1
 
 
 def scan(base):
@@ -111,37 +137,57 @@ def scan(base):
                 "rx": read_int(os.path.join(stats, "rx_bytes")),
                 "tx": read_int(os.path.join(stats, "tx_bytes")),
                 "_operstate": operstate,
+                "_live": is_live(path, operstate, flags),
             }
         )
     return ifaces
 
 
-def default_routes(proc):
-    """Map interface name to its lowest IPv4 default-route metric."""
-    routes = {}
+def read_lines(path):
     try:
-        with open(os.path.join(proc, "net", "route")) as f:
-            lines = f.read().splitlines()[1:]
+        with open(path) as f:
+            return f.read().splitlines()
     except OSError:
-        return routes
-    for line in lines:
+        return []
+
+
+def default_routes(proc):
+    """Map interface name to its lowest IPv4 or IPv6 default-route metric."""
+    routes = {}
+
+    def add(name, metric):
+        if name != "lo" and (name not in routes or metric < routes[name]):
+            routes[name] = metric
+
+    for line in read_lines(os.path.join(proc, "net", "route"))[1:]:
         fields = line.split()
         if len(fields) < 8:
             continue
         name, dest, flags, metric, mask = fields[0], fields[1], fields[3], fields[6], fields[7]
         try:
-            if int(dest, 16) or int(mask, 16) or not int(flags, 16) & 0x1:
+            flags = int(flags, 16)
+            if int(dest, 16) or int(mask, 16) or not flags & 0x1 or flags & RTF_REJECT:
                 continue
-            metric = int(metric)
+            add(name, int(metric))
         except ValueError:
             continue
-        if name not in routes or metric < routes[name]:
-            routes[name] = metric
+
+    # dest, dest_len, src, src_len, next_hop, metric, refcnt, use, flags, name
+    for line in read_lines(os.path.join(proc, "net", "ipv6_route")):
+        fields = line.split()
+        if len(fields) < 10:
+            continue
+        try:
+            if int(fields[0], 16) or int(fields[1], 16) or int(fields[8], 16) & RTF_REJECT:
+                continue
+            add(fields[9], int(fields[5], 16))
+        except ValueError:
+            continue
     return routes
 
 
 def pick_link(ifaces, routes):
-    candidates = [i for i in ifaces if i["physical"] and i["_operstate"] == "up"]
+    candidates = [i for i in ifaces if i["physical"] and i["_live"]]
     if not candidates:
         return None
     routed = [i for i in candidates if i["name"] in routes]

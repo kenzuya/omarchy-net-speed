@@ -73,6 +73,7 @@ Panel {
     if (kind === "wifi") return "Wi-Fi"
     if (kind === "ethernet") return "Ethernet"
     if (kind === "usb") return "USB"
+    if (kind === "tether") return "USB tether"
     return "Link"
   }
 

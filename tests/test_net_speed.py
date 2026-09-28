@@ -45,6 +45,7 @@ class FakeSystem:
         os.makedirs(os.path.join(root, "sys", "bus", "pci"))
         self.set_boot_id("boot-one")
         self.set_routes([])
+        self.set_routes6([])
 
     def _write(self, path, text):
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -52,7 +53,8 @@ class FakeSystem:
             f.write(text)
 
     def add(self, name, type_=1, operstate="up", flags="0x1003", physical=False,
-            wireless=False, usb=False, tun_flags=False, rx=0, tx=0):
+            wireless=False, usb=False, tun_flags=False, rx=0, tx=0,
+            carrier=None, driver=None, usb_class=None):
         path = os.path.join(self.sysfs, name)
         os.makedirs(os.path.join(path, "statistics"))
         self._write(os.path.join(path, "type"), "%d\n" % type_)
@@ -64,6 +66,14 @@ class FakeSystem:
             bus = "usb" if usb else "pci"
             os.symlink(os.path.join(self.root, "sys", "bus", bus), os.path.join(dev, "subsystem"))
             os.symlink(dev, os.path.join(path, "device"))
+            if driver:
+                drv = os.path.join(self.root, "sys", "bus", bus, "drivers", driver)
+                os.makedirs(drv, exist_ok=True)
+                os.symlink(drv, os.path.join(dev, "driver"))
+            if usb_class:
+                self._write(os.path.join(dev, "bInterfaceClass"), usb_class + "\n")
+        if carrier is not None:
+            self._write(os.path.join(path, "carrier"), "%d\n" % carrier)
         if wireless:
             os.makedirs(os.path.join(path, "wireless"))
         if tun_flags:
@@ -84,6 +94,19 @@ class FakeSystem:
         # A non-default route, which must be ignored.
         lines.append("lo\t0000000A\t00000000\t0001\t0\t0\t0\t00FFFFFF\t0\t0\t0\n")
         self._write(os.path.join(self.proc, "net", "route"), "".join(lines))
+
+    def set_routes6(self, defaults):
+        """defaults: list of (iface, metric, reject) IPv6 default routes."""
+        zero = "0" * 32
+        lines = []
+        for name, metric, reject in defaults:
+            flags = 0x00200200 if reject else 0x00450003
+            lines.append("%s 00 %s 00 %s %08x 00000001 00000000 %08x %8s\n"
+                         % (zero, zero, "fe80" + "0" * 27 + "1", metric, flags, name))
+        # A non-default route, which must be ignored.
+        lines.append("fe800000000000000000000000000000 40 %s 00 %s 00000100 "
+                     "00000001 00000000 00000001 lo\n" % (zero, zero))
+        self._write(os.path.join(self.proc, "net", "ipv6_route"), "".join(lines))
 
     def set_boot_id(self, value):
         self._write(os.path.join(self.proc, "sys", "kernel", "random", "boot_id"), value + "\n")
@@ -198,6 +221,60 @@ class LinkSelection(Base):
         self.fs.add("enx0", physical=True, usb=True)
         out = self.fs.run()
         self.assertEqual(out["link"]["kind"], "usb")
+
+    def test_unknown_operstate_with_carrier_is_picked(self):
+        # Android USB tethering: rndis_host never reports link state.
+        self.fs.add("enp0s20f0u3", physical=True, usb=True, operstate="unknown",
+                    carrier=1, driver="rndis_host", rx=200, tx=10)
+        self.fs.add("wlo1", physical=True, wireless=True, operstate="down", rx=3)
+        self.fs.set_routes([("enp0s20f0u3", 100)])
+        out = self.fs.run()
+        self.assertIsNone(out["error"])
+        self.assertEqual(out["link"], {"name": "enp0s20f0u3", "kind": "tether", "up": True,
+                                       "rx": 200, "tx": 10, "reason": "auto"})
+
+    def test_unknown_operstate_without_carrier_is_not_picked(self):
+        self.fs.add("enx0", physical=True, usb=True, operstate="unknown", carrier=0)
+        self.fs.add("enx1", physical=True, usb=True, operstate="unknown", flags="0x1002",
+                    carrier=1)
+        self.fs.add("enx2", physical=True, usb=True, operstate="unknown")
+        self.fs.set_routes([("enx0", 10), ("enx1", 20), ("enx2", 30)])
+        self.assertIsNone(self.fs.run()["link"])
+
+    def test_routed_tether_beats_unrouted_wifi(self):
+        self.fs.add("wlp0s0", physical=True, wireless=True, rx=99999)
+        self.fs.add("usb0", physical=True, usb=True, operstate="unknown", carrier=1,
+                    driver="rndis_host", rx=5)
+        self.fs.set_routes([("usb0", 100)])
+        self.assertEqual(self.fs.run()["link"]["name"], "usb0")
+
+    def test_tether_kinds(self):
+        self.fs.add("usb0", physical=True, usb=True, driver="rndis_host")
+        self.fs.add("eth1", physical=True, usb=True, driver="ipheth")
+        self.fs.add("usb1", physical=True, usb=True, driver="cdc_ether", usb_class="E0")
+        self.fs.add("enx0", physical=True, usb=True, driver="cdc_ether", usb_class="02")
+        kinds = {i["name"]: i["kind"] for i in self.fs.run()["ifaces"]}
+        self.assertEqual(kinds, {"usb0": "tether", "eth1": "tether",
+                                 "usb1": "tether", "enx0": "usb"})
+
+    def test_ipv6_default_route_decides(self):
+        self.fs.add("enp0s0", physical=True, rx=10)
+        self.fs.add("wlp0s0", physical=True, wireless=True, rx=99999)
+        self.fs.set_routes6([("enp0s0", 1024, False)])
+        self.assertEqual(self.fs.run()["link"]["name"], "enp0s0")
+
+    def test_ipv6_reject_default_is_ignored(self):
+        self.fs.add("enp0s0", physical=True, rx=10)
+        self.fs.add("wlp0s0", physical=True, wireless=True, rx=99999)
+        self.fs.set_routes6([("enp0s0", 1, True)])
+        self.assertEqual(self.fs.run()["link"]["name"], "wlp0s0")
+
+    def test_missing_ipv6_route_file(self):
+        os.unlink(os.path.join(self.fs.proc, "net", "ipv6_route"))
+        self.fs.add("enp0s0", physical=True)
+        out = self.fs.run()
+        self.assertEqual(out["link"]["name"], "enp0s0")
+        self.assertIsNone(out["error"])
 
     def test_usb_wifi_dongle_is_wifi(self):
         self.fs.add("wlx0", physical=True, usb=True, wireless=True)
