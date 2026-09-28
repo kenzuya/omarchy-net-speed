@@ -40,7 +40,7 @@ development install, running the collector by hand, and uninstalling.
 | Where | What |
 |---|---|
 | Bar | `↑` upload over `↓` download on the physical link, at a fixed width so the bar does not shift as the figures change |
-| Panel header | The interface being measured, its kind, whether it was chosen automatically or pinned, and a green "VPN up: wg0" or amber "VPN down" |
+| Panel header | The interface being measured with an icon for its kind (Wi-Fi, Ethernet, USB, USB tether), its kind, whether it was chosen automatically or pinned, and a green "VPN up: wg0" or amber "VPN down" |
 | Speed | current upload and download for the link and for the tunnel, in the same two columns |
 | Overhead | how much more the link carried than the tunnel over the last minute, when a tunnel is up and busy |
 | Graph | download and upload on the link over the last 120 samples (two minutes at the default interval), scaled to the busiest moment in view |

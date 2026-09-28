@@ -77,6 +77,19 @@ Panel {
     return "Link"
   }
 
+  // Nerd Font Material Design glyphs, the same family the bar's vertical
+  // glyph comes from: wifi, ethernet, usb, cellphone-link and lan.
+  function kindIcon(kind) {
+    if (kind === "wifi") return "󰖩"
+    if (kind === "ethernet") return "󰈀"
+    if (kind === "usb") return "󰕓"
+    if (kind === "tether") return "󰄡"
+    return "󰌘"
+  }
+
+  // lan-disconnect when a run found no link; nothing before the first sample.
+  readonly property string linkIcon: root.link ? root.kindIcon(root.link.kind) : (root.snap ? "󰌙" : "")
+
   readonly property string linkLabel: link ? kindLabel(link.kind) : "Link"
 
   // What the tunnel costs on the wire. Every byte that goes through the
@@ -363,15 +376,32 @@ Panel {
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.spacing.xxs
 
-              Text {
+              Row {
                 width: parent.width
-                elide: Text.ElideRight
-                textFormat: Text.PlainText
-                text: root.link ? root.link.name : (root.snap ? "Offline" : "Waiting for first sample")
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-                font.bold: true
+                spacing: Style.spacing.sm
+
+                Text {
+                  id: kindGlyph
+                  anchors.verticalCenter: parent.verticalCenter
+                  visible: text !== ""
+                  textFormat: Text.PlainText
+                  text: root.linkIcon
+                  color: root.link ? root.foreground : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                }
+
+                Text {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width - (kindGlyph.visible ? kindGlyph.width + parent.spacing : 0)
+                  elide: Text.ElideRight
+                  textFormat: Text.PlainText
+                  text: root.link ? root.link.name : (root.snap ? "Offline" : "Waiting for first sample")
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                }
               }
 
               Text {

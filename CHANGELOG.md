@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The panel header shows an icon for the link's kind to the left of the
+  interface name: Wi-Fi, Ethernet, USB, USB tether, or a generic network
+  icon for anything else. When no link is up it shows a disconnected icon
+  in the dim colour.
+
 ## 0.3.2 - 2026-09-28
 
 ### Fixed
